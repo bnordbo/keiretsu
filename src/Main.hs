@@ -1,6 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
-{-# LANGUAGE TemplateHaskell   #-}
 
 -- Module      : Main
 -- Copyright   : (c) 2013 Brendan Hay <brendan.g.hay@gmail.com>
@@ -17,81 +16,142 @@ module Main
     ) where
 
 import           Control.Applicative
+import           Control.Arrow
 import           Control.Monad
 import qualified Data.ByteString.Char8 as BS
-import           Data.List (nub)
 import           Data.Monoid
+import           Data.Text             (Text)
+import qualified Data.Text             as Text
+import qualified Data.Text.Encoding    as Text
 import           Keiretsu.Config
 import           Keiretsu.Log
 import           Keiretsu.Process
 import           Keiretsu.Types
-import           Options
+import           Options.Applicative
 import           System.Directory
 import           System.Environment
 import           System.Exit
 
-defineOptions "Start" $ do
-    stringOption "sDir" "dir" "./"
-        "Path to the directory containing the root Intfile. (default: ./)"
+data Start = Start
+    { sDir     :: !FilePath
+    , sEnvs    :: [FilePath]
+    , sRuns    :: [Text]
+    , sDelay   :: !Int
+    , sExclude :: [Text]
+    , sPorts   :: !Int
+    , sDryRun  :: !Bool
+    , sDebug   :: !Bool
+    }
 
-    boolOption "sDebug" "debug" False
-        "Show debug output. (default: false)"
+start :: Parser Start
+start = Start
+    <$> strOption
+        ( long "dir"
+       <> short 'd'
+       <> metavar "DIR"
+       <> value "./"
+       <> help "Path to the directory containing the root Intfile. (default: ./)"
+        )
 
-    stringsOption "sEnvs" "env" []
-        "Additional .env files to merge into the environment. (default: none)"
+    <*> many (strOption
+        ( long "env"
+       <> short 'e'
+       <> metavar "FILE"
+       <> help "Additional .env files to merge into the environment. (default: none)"
+        ))
 
-    stringsOption "sRuns" "run" []
-        "Additional commands to run in the environment. (default: none)"
+    <*> many (textOption
+        ( long "run"
+       <> short 'r'
+       <> metavar "CMD"
+       <> help "Additional commands to run in the environment. (default: none)"
+        ))
 
-    intOption "sDelay" "delay" 1000
-        "Millisecond delay between dependency start. (default 1000)"
+    <*> option
+        ( long "delay"
+       <> short 'n'
+       <> metavar "MS"
+       <> value 1000
+       <> help "Millisecond delay between run commands start. (default: 1000)"
+        )
 
-    stringsOption "sExclude" "exclude" []
-        "Name of a proctype to exclude. (default: none)"
+    <*> many (textOption
+        ( long "exclude"
+       <> short 'x'
+       <> metavar "PROC"
+       <> help "Prefixed name of a proctype to exclude. (default: none)"
+        ))
 
-    boolOption "sDryRun" "dry-run" False
-        "Print output without starting any processes. (default: false)"
+    <*> option
+        ( long "ports"
+       <> short 'p'
+       <> metavar "INT"
+       <> value 2
+       <> help "Number of ports to allocate to a single proctype. (default: 2)"
+        )
+
+    <*> switch
+        ( long "dry-run"
+       <> help "Print output without starting any processes. (default: false)"
+        )
+
+    <*> switch
+        ( long "debug"
+       <> help "Show debug output. (default: false)"
+        )
 
 main :: IO ()
-main = runCommand $ \opts@Start{..} _ -> do
-    check opts
+main = do
+    s@Start{..} <- customExecParser
+        (prefs $ showHelpOnError <> columns 100)
+        (info start idm)
 
     setLogging sDebug
+    check s
 
-    d  <- makeLocalDep
-    ds <- reverse . nub . (d :) <$> loadDeps sDir
+    l  <- depLocal
+    ds <- (l :) <$> dependencies sDir
+    ps <- excludeProcs sExclude . concat <$> mapM (proctypes sPorts) ds
+    pe <- environment ps sEnvs
+    le <- (pe ++) . map (Text.pack *** Text.pack) <$> getEnvironment
 
-    ps <- readProcs ds
+    let cs    = map (setLocalEnv pe) ps
+        rs    = zipWith (procLocal l le sDelay) [1..] sRuns
+        procs = cs ++ excludeProcs sExclude rs
 
-    pe <- readEnvs ds sEnvs ps
-    le <- getEnvironment
+    when sDebug $
+        dump procs
 
-    ex <- mapM (makeLocalProc "run") sRuns
-
-    let delay = sDelay * 1000
-        disc  = makeCmds pe delay ps
-        spec  = makeCmds (pe ++ le) delay ex
-        cmds  = filter ((`notElem` sExclude) . cmdPre) $ disc ++ spec
-
-    when sDebug $ dumpEnv cmds
-    unless sDryRun $ runCommands cmds
+    unless sDryRun $
+        run procs
 
 check :: Start -> IO ()
 check Start{..} = do
-    when (0 > sDelay) $ throwError "--delay must be non-negative."
+    when (sPorts < 0) $ throwError "--ports must be greater-than 0."
     when (null sDir)  $ throwError "--dir must be specified."
-    mapM_ (path " specified by --env doesn't exist.") sEnvs
+
+    d <- doesDirectoryExist sDir
+    unless d . throwError $
+        "Directory " ++ sDir ++ " specified by --dir doesn't exist."
+
+    forM_ sEnvs $ \e -> do
+        f <- doesFileExist e
+        unless f . throwError $
+            "File " ++ e ++ " specified by --env doesn't exist."
+
+throwError :: String -> IO ()
+throwError s = logError s >> exitFailure
+
+dump :: [Proc] -> IO ()
+dump = zipWithM_ (\c -> mapM_ BS.putStrLn . format c) colours
   where
-    path m f = do
-        p <- doesFileExist f
-        unless p . throwError $ f ++ m
+    format c Proc{..} = map (colourise c procPrefix . Text.encodeUtf8)
+        $ "command: " <> procCmd
+        : "delay: "   <> Text.pack (show procDelay ++ "ms")
+        : maybe [] (\x -> ["check: " <> x]) procCheck
+       ++ map f procEnv
 
-    throwError s = logError s >> exitFailure
+    f (k, v) = k <> ": " <> v
 
-dumpEnv :: [Cmd] -> IO ()
-dumpEnv = mapM_ (mapM_ BS.putStrLn . format) . zip colours
-  where
-    format (c, Cmd{..}) = map (colourise c "") $
-        BS.pack cmdPre <> ": " <> BS.pack cmdStr : map f cmdEnv
-
-    f (k, v) = BS.pack k <> ": " <> BS.pack v
+textOption :: Mod OptionFields String -> Parser Text
+textOption = fmap Text.pack . strOption
