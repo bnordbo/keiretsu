@@ -45,7 +45,7 @@ executable keiretsu
         , filepath
         , hslogger
         , io-streams
-        , options
+        , options       <  1.0
         , network
         , process
         , unix
