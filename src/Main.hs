@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards   #-}
 
 -- Module      : Main
--- Copyright   : (c) 2013 Brendan Hay <brendan.g.hay@gmail.com>
+-- Copyright   : (c) 2013-2014 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
 --               A copy of the MPL can be found in the LICENSE file or
@@ -19,6 +19,7 @@ import           Control.Applicative
 import           Control.Arrow
 import           Control.Monad
 import qualified Data.ByteString.Char8 as BS
+import           Data.List
 import           Data.Monoid
 import           Data.Text             (Text)
 import qualified Data.Text             as Text
@@ -67,7 +68,7 @@ start = Start
        <> help "Additional commands to run in the environment. (default: none)"
         ))
 
-    <*> option
+    <*> option auto
         ( long "delay"
        <> short 'n'
        <> metavar "MS"
@@ -82,7 +83,7 @@ start = Start
        <> help "Prefixed name of a proctype to exclude. (default: none)"
         ))
 
-    <*> option
+    <*> option auto
         ( long "ports"
        <> short 'p'
        <> metavar "INT"
@@ -92,7 +93,7 @@ start = Start
 
     <*> switch
         ( long "dry-run"
-       <> help "Print output without starting any processes. (default: false)"
+       <> help "Execute the orchestration plan without starting any processes. (default: false)"
         )
 
     <*> switch
@@ -106,12 +107,12 @@ main = do
         (prefs $ showHelpOnError <> columns 100)
         (info start idm)
 
-    setLogging sDebug
+    setLogging True
     check s
 
     l  <- depLocal
     ds <- (l :) <$> dependencies sDir
-    ps <- excludeProcs sExclude . concat <$> mapM (proctypes sPorts) ds
+    ps <- nub . excludeProcs sExclude . concat <$> mapM (proctypes sPorts) ds
     pe <- environment ps sEnvs
     le <- (pe ++) . map (Text.pack *** Text.pack) <$> getEnvironment
 

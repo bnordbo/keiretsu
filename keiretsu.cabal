@@ -1,18 +1,24 @@
 name:                  keiretsu
-version:               0.4.2
-synopsis:              Process orchestration for development and integration testing
+version:               0.4.4
+synopsis:              Multi-process orchestration for development and integration testing
 license:               OtherLicense
 license-file:          LICENSE
 author:                Brendan Hay
 maintainer:            Brendan Hay <brendan.g.hay@gmail.com>
-copyright:             Copyright (c) 2013 Brendan Hay
+copyright:             Copyright (c) 2013-2014 Brendan Hay
 stability:             Experimental
 category:              Development, Testing
 build-type:            Simple
 cabal-version:         >= 1.10
 
 description:
-    Process orchestration for development and integration testing
+    Keiretsu is an orchestration manager primarily designed for local development
+    and integration testing.
+    .
+    It allows you to specify dependencies that should be running/available before
+    the start of the local application, triggers setup/teardown hooks, and applies
+    a consistent environment to all child processes ensuring deterministic and
+    repeatable configuration.
 
 extra-source-files:
     README.md
@@ -42,7 +48,7 @@ executable keiretsu
         , io-streams
         , options       <  1.0
         , network
-        , optparse-applicative == 0.9.*
+        , optparse-applicative == 0.11.*
         , process              == 1.2.*
         , text
         , unix

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- Module      : Keiretsu.Log
--- Copyright   : (c) 2013 Brendan Hay <brendan.g.hay@gmail.com>
+-- Copyright   : (c) 2013-2014 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
 --               A copy of the MPL can be found in the LICENSE file or
@@ -46,7 +46,7 @@ setLogging debug = do
     prio = if debug then DEBUG else INFO
 
 colours :: [Color]
-colours = cycle [Red, Green, Blue, White, Magenta, Yellow, Cyan]
+colours = cycle [Red, Green, Blue, Magenta, Yellow, Cyan]
 
 colourise :: Color -> Text -> ByteString -> ByteString
 colourise c x y = prefix

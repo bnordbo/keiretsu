@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 -- Module      : Keiretsu.Types
--- Copyright   : (c) 2013 Brendan Hay <brendan.g.hay@gmail.com>
+-- Copyright   : (c) 2013-2014 Brendan Hay <brendan.g.hay@gmail.com>
 -- License     : This Source Code Form is subject to the terms of
 --               the Mozilla Public License, v. 2.0.
 --               A copy of the MPL can be found in the LICENSE file or
@@ -17,6 +17,7 @@ import           Control.Applicative
 import           Control.Arrow
 import           Control.Monad
 import           Data.Aeson
+import           Data.Function
 import qualified Data.HashMap.Strict as Map
 import           Data.List
 import           Data.Monoid
@@ -51,10 +52,7 @@ instance FromJSON [Dep] where
 depLocal :: IO Dep
 depLocal = do
     d <- getCurrentDirectory
-    return $! Dep d (nameFromDir d)
-
-nameFromDir :: FilePath -> Text
-nameFromDir = Text.pack . takeBaseName
+    return $! Dep d (Text.pack (takeBaseName d))
 
 type Env = [(Text, Text)]
 
@@ -81,14 +79,17 @@ data Proc = Proc
     , procPorts  :: [Port]
     , procPrefix :: Text
     , procDep    :: Dep
-    } deriving (Show, Eq)
+    } deriving (Show)
+
+instance Eq Proc where
+    (==) = on (==) procPrefix
 
 instance FromJSON [Dep -> Proc] where
     parseJSON = withObject "Procfile" $ \o ->
         forM (Map.toList o) $ \(k, v) -> do
             f <- foreman k v <|> keiretsu k v
             return $ \d ->
-                f [] [] (nameFromDir (depPath d) <> "/" <> k) d
+                f [] [] (depName d <> "/" <> k) d
       where
         keiretsu k = withObject "Keiretsu Format" $ \o ->
             Proc False k
